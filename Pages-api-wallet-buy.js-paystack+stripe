@@ -1,0 +1,19 @@
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+
+export default async function handler(req, res) {
+  const { user_id, pack_id, currency } = req.body;
+  const pack = require('../../lib/coins').PACKS.find(p=>p.id===pack_id);
+  const totalCoins = pack.coins + pack.bonus;
+  const amount = pack.prices[currency];
+
+  // 1. Here you verify Paystack/Stripe webhook - for now we trust client after payment success
+  // 2. Add coins
+  await supabase.rpc('add_coins', { uid: user_id, add: totalCoins });
+  // Fallback if rpc not exist:
+  const { data: w } = await supabase.from('wallets').select('coins').eq('user_id', user_id).single();
+  await supabase.from('wallets').update({ coins: (w?.coins||0)+totalCoins }).eq('user_id', user_id);
+  await supabase.from('coin_transactions').insert({ user_id, coins: totalCoins, amount, currency, provider: currency==='NGN'?'paystack':'stripe', status:'success' });
+
+  res.json({ success: true, coins: totalCoins });
+}
